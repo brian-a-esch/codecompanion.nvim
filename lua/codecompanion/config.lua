@@ -463,21 +463,37 @@ local defaults = {
     inline = {
       adapter = "copilot",
       keymaps = {
-        accept_change = {
+        accept_hunk = {
           modes = {
             n = "ga",
           },
           index = 1,
-          callback = "keymaps.accept_change",
-          description = "Accept change",
+          callback = "keymaps.accept_hunk",
+          description = "Accept hunk of change",
         },
-        reject_change = {
+        accept_change = {
+          modes = {
+            n = "gA",
+          },
+          index = 2,
+          callback = "keymaps.accept_change",
+          description = "Accept all of change",
+        },
+        reject_hunk = {
           modes = {
             n = "gr",
           },
-          index = 2,
+          index = 3,
+          callback = "keymaps.reject_hunk",
+          description = "Reject hunk of change",
+        },
+        reject_change = {
+          modes = {
+            n = "gR",
+          },
+          index = 4,
           callback = "keymaps.reject_change",
-          description = "Reject change",
+          description = "Reject all of change",
         },
       },
       variables = {
