@@ -9,6 +9,7 @@
 ---@field id number A unique identifier for the diff instance
 ---@field winnr number The window number of the original buffer
 ---@field diff table The table containing the diff buffer and window
+---@field algorithm string The diff algorithm used
 
 ---@class CodeCompanion.DiffArgs
 ---@field bufnr number
@@ -19,6 +20,7 @@
 ---@field winnr number
 
 local config = require("codecompanion.config")
+local hunk_mod = require("codecompanion.utils.hunks")
 local log = require("codecompanion.utils.log")
 local util = require("codecompanion.utils")
 
@@ -36,9 +38,19 @@ function Diff.new(args)
     filetype = args.filetype,
     id = args.id,
     winnr = args.winnr,
+    algorithm = nil,
   }, { __index = Diff })
 
   log:trace("Using default diff")
+  for _, opt in ipairs(config.display.diff.opts) do
+    if type(opt) == "string" then
+      local algo_maybe = opt:match("^algorithm:(.+)$")
+      if algo_maybe then
+        self.algorithm = algo_maybe
+        log:debug("Parsed algorithm %s from user diff options", self.algorithm)
+      end
+    end
+  end
 
   -- Set the diff properties
   vim.cmd("set diffopt=" .. table.concat(config.display.diff.opts, ","))
@@ -99,20 +111,60 @@ end
 ---@return nil
 function Diff:accept()
   util.fire("DiffAccepted", { diff = "default", bufnr = self.bufnr, id = self.id, accept = true })
-  return self:teardown()
+end
+
+---Accept hunk of the diff
+---@return boolean if all hunks diff have been applied
+function Diff:accept_hunk()
+  local buf_lines = vim.api.nvim_buf_get_lines(self.bufnr, 0, -1, false)
+  local hunks = hunk_mod.get_hunks(buf_lines, self.contents, self.algorithm)
+  local hunk = hunk_mod.find_hunk_under_cursor(self.bufnr, hunks)
+  log:debug("For apply buffer has %d hunks, found %s under curor", #hunks, hunk)
+  if hunk then
+    self.contents = hunk_mod.apply_hunks(buf_lines, self.contents, { hunk })
+    vim.api.nvim_buf_set_lines(self.diff.buf, 0, -1, true, self.contents)
+    vim.cmd("diffupdate")
+    if #hunks <= 1 then
+      util.fire("DiffAccepted", { diff = "default", bufnr = self.bufnr, id = self.id, accept = true })
+      return true
+    end
+  end
+
+  return false
 end
 
 ---Reject the diff
 ---@return nil
 function Diff:reject()
   util.fire("DiffRejected", { diff = "default", bufnr = self.bufnr, id = self.id, accept = false })
-  self:teardown()
   return api.nvim_buf_set_lines(self.bufnr, 0, -1, true, self.contents)
+end
+
+---Reject hunk of the diff
+---@return boolean if all hunks diff have been applied
+function Diff:reject_hunk()
+  local buf_lines = vim.api.nvim_buf_get_lines(self.bufnr, 0, -1, false)
+  local hunks = hunk_mod.get_hunks(buf_lines, self.contents, self.algorithm)
+  local hunk = hunk_mod.find_hunk_under_cursor(self.bufnr, hunks)
+  log:debug("For reject buffer has %d hunks, found %s under curor", #hunks, hunk)
+  if hunk then
+    local flipped = hunk_mod.flip_hunks({ hunk })
+    local new_buf_lines = hunk_mod.apply_hunks(self.contents, buf_lines, flipped)
+    vim.api.nvim_buf_set_lines(self.bufnr, 0, -1, true, new_buf_lines)
+    vim.cmd("diffupdate")
+
+    if #hunks <= 1 then
+      util.fire("DiffRejected", { diff = "default", bufnr = self.bufnr, id = self.id, accept = false })
+      return true
+    end
+  end
+
+  return false
 end
 
 ---Close down the diff
 ---@return nil
-function Diff:teardown()
+function Diff:disable()
   vim.cmd("diffoff")
   api.nvim_buf_delete(self.diff.buf, {})
   util.fire("DiffDetached", { diff = "default", bufnr = self.bufnr, id = self.id, winnr = self.diff.win })

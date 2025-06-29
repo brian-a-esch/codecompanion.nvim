@@ -1,7 +1,7 @@
 ---Utilising the awesome:
 ---https://github.com/echasnovski/mini.diff
 
-local apply_hunks = require("codecompanion.utils.apply_hunks")
+local hunk_mod = require("codecompanion.utils.hunks")
 local log = require("codecompanion.utils.log")
 local util = require("codecompanion.utils")
 
@@ -54,20 +54,20 @@ function MiniDiff.new(args)
       apply_hunks = function(bufnr, hunks)
         local lines = api.nvim_buf_get_lines(bufnr, 0, -1, false)
         log:debug("Applying hunks %s", hunks)
-        self.contents = apply_hunks.apply_hunks(lines, self.contents, hunks)
+        self.contents = hunk_mod.apply_hunks(lines, self.contents, hunks)
         diff.set_ref_text(bufnr, self.contents)
-      end
+      end,
     },
   }
 
-  vim.api.nvim_create_autocmd('User', {
+  vim.api.nvim_create_autocmd("User", {
     group = self.aug,
-    pattern = 'MiniDiffUpdated',
+    pattern = "MiniDiffUpdated",
     callback = function(_)
       if not self.seen_event then
-        vim.fn.setqflist(diff.export('qf'), 'a')
+        vim.fn.setqflist(diff.export("qf"), "a")
       else
-        vim.fn.setqflist(diff.export('qf'), 'r')
+        vim.fn.setqflist(diff.export("qf"), "r")
       end
       self.seen_event = true
     end,
@@ -79,39 +79,20 @@ function MiniDiff.new(args)
   return self
 end
 
----Finds the hunk associated with the current cursor position in the buffer
-local function find_hunk_under_cursor(bufnr)
-  local cursor_buf = vim.api.nvim_get_current_buf()
-  if cursor_buf ~= bufnr then
-    log:debug("cursor not on buf to find hunk")
-    return nil
-  end
-
-  local row, _ = unpack(vim.api.nvim_win_get_cursor(0))
-  local data = diff.get_buf_data(bufnr)
-  if not data then
-    log:debug("Minidiff returned no data?")
-    return nil
-  end
-
-  local hunks = data.hunks
-  for _, hunk in ipairs(hunks) do
-    if hunk.buf_start <= row and row <= hunk.buf_start + hunk.buf_count then
-      return hunk, #hunks
-    end
-  end
-
-  log:debug("Found no mindiff hunks on line %d out of hunks %s", row, hunks)
-  return nil
-end
 ---Accept hunk of the diff
 ---@return boolean if all hunks diff have been applied
 function MiniDiff:accept_hunk()
-  local hunk, remaining_hunks = find_hunk_under_cursor(self.bufnr)
+  local data = diff.get_buf_data(self.bufnr)
+  if not data then
+    return false
+  end
+
+  local hunks = data.hunks
+  local hunk = hunk_mod.find_hunk_under_cursor(self.bufnr, hunks)
   if hunk then
-    diff.do_hunks(self.bufnr, 'apply', { line_start = hunk.buf_start, line_end = hunk.buf_start + hunk.buf_count })
-    if remaining_hunks <= 1 then
-      util.fire("DiffAccepted", { diff = "mini_diff", bufnr = self.bufnr, id = self.id, accept = false })
+    diff.do_hunks(self.bufnr, "apply", { line_start = hunk.buf_start, line_end = hunk.buf_start + hunk.buf_count })
+    if #hunks <= 1 then
+      util.fire("DiffAccepted", { diff = "mini_diff", bufnr = self.bufnr, id = self.id, accept = true })
       return true
     end
   end
@@ -128,10 +109,16 @@ end
 ---Accept hunk of the diff
 ---@return boolean if all hunks diff have been applied
 function MiniDiff:reject_hunk()
-  local hunk, remaining_hunks = find_hunk_under_cursor(self.bufnr)
+  local data = diff.get_buf_data(self.bufnr)
+  if not data then
+    return false
+  end
+
+  local hunks = data.hunks
+  local hunk = hunk_mod.find_hunk_under_cursor(self.bufnr, hunks)
   if hunk then
-    diff.do_hunks(self.bufnr, 'reset', { line_start = hunk.buf_start, line_end = hunk.buf_start + hunk.buf_count })
-    if remaining_hunks <= 1 then
+    diff.do_hunks(self.bufnr, "reset", { line_start = hunk.buf_start, line_end = hunk.buf_start + hunk.buf_count })
+    if #hunks <= 1 then
       util.fire("DiffRejected", { diff = "mini_diff", bufnr = self.bufnr, id = self.id, accept = false })
       return true
     end
