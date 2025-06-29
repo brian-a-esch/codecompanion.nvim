@@ -20,7 +20,11 @@ M.accept_hunk = {
   callback = function(inline)
     if inline.diff then
       log:trace("[Inline] Accepting hunk of diff")
-      inline.diff:accept_hunk()
+      local done = inline.diff:accept_hunk()
+      if done then
+        inline.diff:disable()
+        clear_map(config.strategies.inline.keymaps, inline.diff.bufnr)
+      end
     end
   end,
 }
@@ -31,6 +35,7 @@ M.accept_change = {
     if inline.diff then
       log:trace("[Inline] Accepting diff")
       inline.diff:accept()
+      inline.diff:disable()
       clear_map(config.strategies.inline.keymaps, inline.diff.bufnr)
     end
   end,
@@ -41,7 +46,11 @@ M.reject_hunk = {
   callback = function(inline)
     if inline.diff then
       log:debug("[Inline] Reject hunk of diff")
-      inline.diff:reject_hunk()
+      local done = inline.diff:reject_hunk()
+      if done then
+        inline.diff:disable()
+        clear_map(config.strategies.inline.keymaps, inline.diff.bufnr)
+      end
     end
   end,
 }
@@ -52,6 +61,7 @@ M.reject_change = {
     if inline.diff then
       log:trace("[Inline] Rejecting diff")
       inline.diff:reject()
+      inline.diff:disable()
       clear_map(config.strategies.inline.keymaps, inline.diff.bufnr)
     end
   end,
