@@ -67,7 +67,7 @@ function MiniDiff.new(args)
       if not self.seen_event then
         vim.fn.setqflist(diff.export('qf'), 'a')
       else
-        vim.fn.setqflist(diff.export('qf'), 'u')
+        vim.fn.setqflist(diff.export('qf'), 'r')
       end
       self.seen_event = true
     end,
@@ -97,7 +97,7 @@ local function find_hunk_under_cursor(bufnr)
   local hunks = data.hunks
   for _, hunk in ipairs(hunks) do
     if hunk.buf_start <= row and row <= hunk.buf_start + hunk.buf_count then
-      return hunk
+      return hunk, #hunks
     end
   end
 
@@ -105,33 +105,44 @@ local function find_hunk_under_cursor(bufnr)
   return nil
 end
 ---Accept hunk of the diff
----@return nil
+---@return boolean if all hunks diff have been applied
 function MiniDiff:accept_hunk()
-  -- BAE what event to fire here?
-  --util.fire("DiffAccepted", { diff = "mini_diff", bufnr = self.bufnr, id = self.id, accept = true })
-  local hunk = find_hunk_under_cursor(self.bufnr)
+  local hunk, remaining_hunks = find_hunk_under_cursor(self.bufnr)
   if hunk then
     diff.do_hunks(self.bufnr, 'apply', { line_start = hunk.buf_start, line_end = hunk.buf_start + hunk.buf_count })
+    if remaining_hunks <= 1 then
+      util.fire("DiffAccepted", { diff = "mini_diff", bufnr = self.bufnr, id = self.id, accept = false })
+      return true
+    end
   end
+
+  return false
 end
 
 ---Accept the diff
 ---@return nil
 function MiniDiff:accept()
   util.fire("DiffAccepted", { diff = "mini_diff", bufnr = self.bufnr, id = self.id, accept = true })
-  vim.b[self.bufnr].minidiff_config = nil
-  diff.disable(self.bufnr)
 end
 
 ---Accept hunk of the diff
----@return nil
+---@return boolean if all hunks diff have been applied
 function MiniDiff:reject_hunk()
-  -- BAE what to fire here?
-  --util.fire("DiffAccepted", { diff = "mini_diff", bufnr = self.bufnr, id = self.id, accept = true })
-  local hunk = find_hunk_under_cursor(self.bufnr)
+  local hunk, remaining_hunks = find_hunk_under_cursor(self.bufnr)
   if hunk then
     diff.do_hunks(self.bufnr, 'reset', { line_start = hunk.buf_start, line_end = hunk.buf_start + hunk.buf_count })
+    if remaining_hunks <= 1 then
+      util.fire("DiffRejected", { diff = "mini_diff", bufnr = self.bufnr, id = self.id, accept = false })
+      return true
+    end
   end
+
+  return false
+end
+
+function MiniDiff:disable()
+  vim.b[self.bufnr].minidiff_config = nil
+  diff.disable(self.bufnr)
 end
 
 ---Reject the diff
@@ -139,9 +150,6 @@ end
 function MiniDiff:reject()
   util.fire("DiffRejected", { diff = "mini_diff", bufnr = self.bufnr, id = self.id, accept = false })
   api.nvim_buf_set_lines(self.bufnr, 0, -1, true, self.contents)
-
-  vim.b[self.bufnr].minidiff_config = nil
-  diff.disable(self.bufnr)
 end
 
 ---Close down mini.diff
